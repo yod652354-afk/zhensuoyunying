@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+*.local
+
+# 环境变量（含数据库连接串等敏感信息）
+.env
+.env.*
+!.env.example
+
+# 临时/提取产物
+_extracted/
+.tmp/
+*.log
+
+# 上传文件（反馈图片等运行时产物）
+uploads/
+backend/uploads/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# 数据库本地文件
+*.sqlite3
+*.db
+backend/*.db
+
+# 前端构建产物（保留 dist 产物除外——由 CI 构建，不入库）
+frontend/dist/
