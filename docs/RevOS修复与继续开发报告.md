@@ -19,7 +19,7 @@
 | 其他-ORM 告警 | 模型重复赋值 `created_at = CommonMixin.created_at` 触发 Unmanaged access 告警；main.py 全局隐藏 | 全部模型类声明改为继承 `(CommonMixin, Base)` / `(TimestampMixin, Base)`，删除冗余显式字段；`app/models/base.py` CommonMixin 显式转发三列；删除 main.py 过滤 | import 全程无告警（`warnings.simplefilter("error")` 验证）；alembic 命令无该类告警 |
 | 其他-单进程调度 | scheduler/worker 仅进程内 | 新增 `app/models/outbox.py`（OutboxMessage/Job）+ `app/services/revos/{outbox,jobs}.py`（事务性 Outbox、租约领取、心跳、指数退避、死信、人工重放、多实例唯一）；main.py 启动 worker | `test_revos_fix_outbox_jobs.py`（6 项：回滚不发布、提交发布、唯一领取、租约接管、死信+重放、重启持久） |
 | 其他-无自动数据接入 | 缺 Connector | 新增 `app/models/connector.py` + `app/services/revos/connector.py`（全量/增量/游标/补偿/Webhook/对账/模拟 SaaS）+ API | `test_revos_fix_connector.py`（5 项：分页游标、全量增量幂等、租户游标隔离、Webhook 回流去重、对账） |
-| 其他-无 Git 仓库 | 本机未安装 git | 修复前 zip 基线 `.tmp/RevOS-PreFix-Baseline-*.zip`（273 文件） | 报告说明；负责人需补建 Git 仓库 |
+| 其他-无 Git 仓库 | 本机未安装 git | 已通过 winget 安装 Git 2.55 并初始化仓库：基线提交 `a0c0e41`（206 文件，敏感/依赖目录全部 .gitignore 排除），后续提交 `af57870` | 报告 §8；`git log` 可查 |
 
 ## 2. R-01 ~ R-11 完成情况
 
@@ -35,7 +35,7 @@
 | R-08 修复 ORM 告警 | ✅ | mixin 继承化 + CommonMixin 转发；删除全局隐藏；无告警 |
 | R-09 通用 Connector | ✅ | 配置/全量/增量/游标/补偿/Webhook/对账/模拟 SaaS + 契约测试 + API |
 | R-10 前端继续开发 | ✅ | 认证修复；自动运营运行中心/待人工归因/Connector 页面；角色路由；生产构建代码分割 |
-| R-11 报告与版本控制 | ✅ | 本报告（142 测试、P0/P1 闭环表）；zip 基线；引用 V2.2 D-017 |
+| R-11 报告与版本控制 | ✅ | 本报告（142 测试、P0/P1 闭环表）；**Git 仓库已初始化**（基线 `a0c0e41`）；引用 V2.2 D-017 |
 
 ## 3. 最终命令结果
 
@@ -81,8 +81,14 @@ pnpm --dir frontend run build
 - 真实 LLM/图片供应商凭证（HttpJsonProvider 已就绪）；
 - 真实小程序 appid/secret（wx_login 已就绪）；
 - 真实诊所 SaaS 环境（Connector 契约测试/模拟器已完成）；
-- 真实门店验收（≥100 名客户、Treatment/Holdout、0 DNC 违规）；
-- Git 仓库初始化（本机无 git，已用 zip 基线替代）。
+- 真实门店验收（≥100 名客户、Treatment/Holdout、0 DNC 违规）。
+
+## 8. Git 基线（R-11）
+
+- 仓库：`D:\个人文件\下载\诊所决策系统`（Git 2.55 经 winget 用户级安装）
+- 基线提交：`a0c0e41`（206 文件；`.env`/`*.db`/`.venv`/`node_modules`/`uploads`/`.tmp`/`dist` 全部忽略）
+- 后续提交：`af57870`（移除沙箱临时配置）
+- 后续开发按 R-11 要求逐修复点独立 commit。
 
 ## 8. 状态声明（00 总指令禁止声明）
 
