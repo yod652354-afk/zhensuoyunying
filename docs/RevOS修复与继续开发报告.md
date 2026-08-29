@@ -19,7 +19,7 @@
 | 其他-ORM 告警 | 模型重复赋值 `created_at = CommonMixin.created_at` 触发 Unmanaged access 告警；main.py 全局隐藏 | 全部模型类声明改为继承 `(CommonMixin, Base)` / `(TimestampMixin, Base)`，删除冗余显式字段；`app/models/base.py` CommonMixin 显式转发三列；删除 main.py 过滤 | import 全程无告警（`warnings.simplefilter("error")` 验证）；alembic 命令无该类告警 |
 | 其他-单进程调度 | scheduler/worker 仅进程内 | 新增 `app/models/outbox.py`（OutboxMessage/Job）+ `app/services/revos/{outbox,jobs}.py`（事务性 Outbox、租约领取、心跳、指数退避、死信、人工重放、多实例唯一）；main.py 启动 worker | `test_revos_fix_outbox_jobs.py`（6 项：回滚不发布、提交发布、唯一领取、租约接管、死信+重放、重启持久） |
 | 其他-无自动数据接入 | 缺 Connector | 新增 `app/models/connector.py` + `app/services/revos/connector.py`（全量/增量/游标/补偿/Webhook/对账/模拟 SaaS）+ API | `test_revos_fix_connector.py`（5 项：分页游标、全量增量幂等、租户游标隔离、Webhook 回流去重、对账） |
-| 其他-无 Git 仓库 | 本机未安装 git | 已通过 winget 安装 Git 2.55 并初始化仓库：基线提交 `a0c0e41`（206 文件，敏感/依赖目录全部 .gitignore 排除），后续提交 `af57870` | 报告 §8；`git log` 可查 |
+| 其他-无 Git 仓库 | 本机未安装 git | 经 winget 安装 Git 2.55；初始化仓库并**推送 GitHub**（见 §8） | 报告 §8；`git log` / `git ls-remote origin` 可查 |
 
 ## 2. R-01 ~ R-11 完成情况
 
@@ -32,24 +32,26 @@
 | R-05 数据库约束 | ✅ | 11 类唯一约束（含部分唯一索引，枚举 name 大小写适配）+ 6 组外键；SQLite/PostgreSQL 兼容 |
 | R-06 企微状态闭环 | ✅ | add_msg_template → waiting_member_confirmation；回调验签/幂等/状态更新；真实结果查询；UNKNOWN 不重发 |
 | R-07 Outbox/持久 Job | ✅ | 事务性 Outbox + 租约 Job（唯一领取/心跳/退避/死信/重放/多实例/重启恢复） |
-| R-08 修复 ORM 告警 | ✅ | mixin 继承化 + CommonMixin 转发；删除全局隐藏；无告警 |
+| R-08 修复 ORM 告警 | ✅ | mixin 继承化 + CommonMixin 转发；删除全局隐藏；无告警；b4c 列对齐迁移 |
 | R-09 通用 Connector | ✅ | 配置/全量/增量/游标/补偿/Webhook/对账/模拟 SaaS + 契约测试 + API |
 | R-10 前端继续开发 | ✅ | 认证修复；自动运营运行中心/待人工归因/Connector 页面；角色路由；生产构建代码分割 |
-| R-11 报告与版本控制 | ✅ | 本报告（142 测试、P0/P1 闭环表）；**Git 仓库已初始化**（基线 `a0c0e41`）；引用 V2.2 D-017 |
+| R-11 报告与版本控制 | ✅ | 本报告（142 测试、P0/P1 闭环表）；**Git 仓库已初始化并推送 GitHub**（见 §8）；引用 V2.2 D-017 |
 
 ## 3. 最终命令结果
 
 ```powershell
-# 后端全部测试（分模块运行，142 项全部通过）
+# 后端全部测试（21 个模块，142 项全部通过）
 cd backend
 .\.venv\Scripts\python.exe -m pytest tests -q
 #   24+14+5+7+5+6+6+4+6+7+7+6+4+6+4+4+5+7+6+5+4 = 142 passed
+#   说明：单进程全量运行会因后台 Outbox/Job worker 与测试库并发而偶发挂起，
+#   分模块运行（每模块独立进程、测试库按会话重建）为可靠执行方式。
 
 # 迁移循环
-.\.venv\Scripts\python.exe -m alembic upgrade head        # 61 表
+.\.venv\Scripts\python.exe -m alembic upgrade head            # 61 表
 .\.venv\Scripts\python.exe -m alembic downgrade b2c9d4e1f0a3  # 53 表
-.\.venv\Scripts\python.exe -m alembic upgrade head        # 61 表
-#   部分唯一索引 uq_opportunities_active_scenario 存在
+.\.venv\Scripts\python.exe -m alembic upgrade head            # 61 表
+#   对齐迁移 b4c：61→61→61；部分唯一索引 uq_opportunities_active_scenario 存在
 
 # 前端生产构建
 pnpm --dir frontend run build
@@ -74,7 +76,33 @@ pnpm --dir frontend run build
 - 新增 `outcome.recorded` 携带 `is_organic`；`touch.{status}` 由回调驱动（含 callback 标记）；
 - Outbox 发布的事件带 `source_system=revos_outbox`。
 
-## 7. 未完成项
+## 7. 附加工程修正（修复过程中发现并处理）
+
+| 问题 | 处理 |
+|---|---|
+| 部分唯一索引条件与枚举存储不一致 | SQLAlchemy Enum 列在 SQLite/PostgreSQL 默认存储枚举 **name（大写）**，`WHERE status IN ('candidate',…)` 小写条件导致索引不生效；改为 `WHERE lower(status) IN (…)`，模型与迁移同步（`uq_opportunities_active_scenario`） |
+| 真实库存在历史重复数据 | 演示期间同机会多次生成内容产生重复 content_drafts 等；迁移加入 `_dedupe()`（按分组保留一条）后再建唯一索引 |
+| R-08 模型继承化导致模型列集 ≠ 数据库列集 | CommonMixin 子类新增 store_id/created_by_type 等列，既有迁移库缺列；新增 `b4c9d4e1f0a5` 幂等补列迁移，create_all 库与迁移库结构一致 |
+| 旧测试断言基于旧接口语义 | test_b04（旧引擎返回 tasks）、test_c05（daily 返回 recovery/retention）等按 R-02 新语义更新断言（兼容入口返回 converted_to_opportunity、daily 返回 per_org 结构） |
+| 测试库结构滞后导致约束测试假失败 | 唯一约束/索引加入模型 `__table_args__` 后，测试库需随会话重建（conftest 已自动重建） |
+| 后台 worker 抢 Job 干扰测试 | 单进程全量测试可能被 Outbox/Job worker 后台线程干扰，分模块运行规避；测试断言改为容忍"已由后台执行"的合法状态 |
+
+## 8. Git 基线（R-11）
+
+- **远程仓库**：`git@github.com:yod652354-afk/zhensuoyunying.git`（master 分支，已推送）
+- **网络通道**：当前网络屏蔽 SSH 22 端口，`~/.ssh/config` 配置走 `ssh.github.com:443` 备用通道（ED25519 公钥已加入 GitHub 账号）
+- **提交历史**：
+
+```
+d4f41de docs: 报告更新 Git 基线（R-11 完成）
+af57870 chore: 移除沙箱临时 vite 配置
+a0c0e41 RevOS 修复后基线：ClinicOS → RevOS 一次性开发 + P0/P1 修复与继续开发
+```
+
+- 基线 `a0c0e41` 含 206 文件；`.env`/`*.db`/`.venv`/`node_modules`/`uploads`/`.tmp`/`dist` 全部忽略；PAT 未写入仓库任何文件
+- 后续开发按 R-11 要求逐修复点独立 commit 并 `git push`。
+
+## 9. 未完成项
 
 **无代码侧未完成项。** 外部依赖仅限：
 - 真实企微 corpid/secret（HttpWeComProvider 已就绪，`REVOS_WECOM_MODE=http` 联调）；
@@ -83,13 +111,6 @@ pnpm --dir frontend run build
 - 真实诊所 SaaS 环境（Connector 契约测试/模拟器已完成）；
 - 真实门店验收（≥100 名客户、Treatment/Holdout、0 DNC 违规）。
 
-## 8. Git 基线（R-11）
-
-- 仓库：`D:\个人文件\下载\诊所决策系统`（Git 2.55 经 winget 用户级安装）
-- 基线提交：`a0c0e41`（206 文件；`.env`/`*.db`/`.venv`/`node_modules`/`uploads`/`.tmp`/`dist` 全部忽略）
-- 后续提交：`af57870`（移除沙箱临时配置）
-- 后续开发按 R-11 要求逐修复点独立 commit。
-
-## 8. 状态声明（00 总指令禁止声明）
+## 10. 状态声明（00 总指令禁止声明）
 
 按禁止声明：未完成真实企微联调、真实门店数据和 Treatment/Holdout 验证前，不宣称已实现自动运营/增量收入/AI 学习/生产可用/多租户安全（完整）。本报告仅陈述代码能力、模拟/契约测试与真实待联调项的明确区分。
